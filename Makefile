@@ -5,7 +5,10 @@ client:
 	go run cmd/client/main.go
 
 echo-client:
-	go run cmd/echo-client/main.go
+	go run cmd/echo/main.go connect -ip $(IP) -port $(PORT)
+
+echo-server:
+	go run cmd/echo/main.go listen -port $(PORT)
 
 certs:
 	mkdir -p certs/
