@@ -57,69 +57,71 @@ func (s *tcpRelayServer) Listen() {
 			log.Println(err)
 			continue
 		}
-		log.Printf("client connected from %s\n", client.RemoteAddr().String())
 		go handleConnection(client, s.target)
 	}
 }
 
 func handleConnection(client net.Conn, target relaytarget.TcpRelayTarget) {
 	defer func() {
-		log.Println("closing client connection")
+		log.Printf("connections terminated\n\n")
 		client.Close()
 	}()
+	log.Printf("client connected from %s\n", client.RemoteAddr().String())
 
 	err := target.Dial()
 	if err != nil {
 		log.Printf("can't dial target server: %+v\n", err)
 		return
 	}
-	log.Println("successfully dial target server", target.Conn().RemoteAddr().String())
-	log.Printf("\nstart exchange message\n")
+	log.Printf("successfully dial target server %s\n\n", target.Conn().RemoteAddr().String())
 
 	for {
-		log.Printf("\n%s ==========> %s\n", client.RemoteAddr().String(), target.Conn().RemoteAddr().String())
-		err = copy(target.Conn(), client)
+		var data []byte
+		data, err = copy(target.Conn(), client)
 		if err != nil {
 			log.Printf("error when send data by client: %+v\n", err)
 			return
 		}
+		log.Printf("%s ==========> %s\n", client.RemoteAddr().String(), target.Conn().RemoteAddr().String())
+		log.Printf("transmitted packet length: %d\n%s\n\n", len(data), hex.EncodeToString(data))
 
-		log.Printf("%s <========== %s\n", client.RemoteAddr().String(), target.Conn().RemoteAddr().String())
-		err = copy(client, target.Conn())
+		data, err = copy(client, target.Conn())
 		if err != nil {
 			log.Printf("error when send data back to client: %+v\n", err)
 			return
 		}
+
+		log.Printf("%s <========== %s\n", client.RemoteAddr().String(), target.Conn().RemoteAddr().String())
+		log.Printf("received packet length: %d\n%s\n\n", len(data), hex.EncodeToString(data))
 	}
 }
 
-func copy(dst net.Conn, src net.Conn) (err error) {
+func copy(dst net.Conn, src net.Conn) (writtenData []byte, err error) {
 	src.SetReadDeadline(time.Now().Add(time.Second * 30))
 
 	r := bufio.NewReader(src)
 	w := bufio.NewWriter(dst)
 	buf := make([]byte, 1024)
-	data := make([]byte, 0)
 
 	buf[0], err = r.ReadByte()
 	if err != nil {
-		return fmt.Errorf("read first byte error: %+v\n", err)
+		return writtenData, fmt.Errorf("read first byte error: %+v", err)
 	}
-	data = append(data, buf[0])
 	err = w.WriteByte(buf[0])
 	if err != nil {
-		return fmt.Errorf("write first byte error: %+v\n", err)
+		return writtenData, fmt.Errorf("write first byte error: %+v", err)
 	}
+	writtenData = append(writtenData, buf[0])
 
 	for r.Buffered() > 0 {
 		nr, er := r.Read(buf[:])
-		data = append(data, buf[:nr]...)
 		if nr > 0 {
 			nw, ew := w.Write(buf[:nr])
 			if ew != nil {
-				err = fmt.Errorf("write data error: %+v\n", ew)
+				err = fmt.Errorf("write data error: %+v", ew)
 				break
 			}
+			writtenData = append(writtenData, buf[:nw]...)
 			if nr != nw {
 				err = io.ErrShortWrite
 				break
@@ -127,12 +129,11 @@ func copy(dst net.Conn, src net.Conn) (err error) {
 		}
 		if er != nil {
 			if er != io.EOF {
-				err = fmt.Errorf("read data error: %+v\n", er)
+				err = fmt.Errorf("read data error: %+v", er)
 			}
 			break
 		}
 	}
-	log.Printf("transmitted packet length:%d\n%s\n", len(data), hex.EncodeToString(data))
 	w.Flush()
-	return err
+	return writtenData, err
 }
