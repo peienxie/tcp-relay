@@ -15,6 +15,7 @@ var (
 )
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	cfg, err := config.SetupConfig("config.ini")
 	if err != nil {
 		log.Fatal(err)
